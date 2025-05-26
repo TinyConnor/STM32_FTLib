@@ -1,5 +1,7 @@
 #include "bsp_usart.h"
 
+uint8_t SendBuff[SENDBUFF_SIZE];
+
 /**
  * @brief 配置嵌套向量中断控制器
  */
@@ -53,12 +55,13 @@ void USART_Config(void)
     USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;/**< 配置工作模式，收发一起*/
     USART_Init(DEBUG_USARTx, &USART_InitStructure);
 
+#if 0
     /* 串口中断优先级配置 */
     NVIC_Configuration();
 
     /* 使能串口接收中断 */
     USART_ITConfig(DEBUG_USARTx, USART_IT_RXNE, ENABLE);
-
+#endif
     /* 使能串口 */
     USART_Cmd(DEBUG_USARTx, ENABLE);
 }
@@ -110,6 +113,22 @@ void Usart_SendHalfWord(USART_TypeDef *pUSARTx, uint16_t ch)
 }
 
 /**
+ * @brief 发送字符数组
+ */
+void Usart_SendArray(USART_TypeDef *pUSARTx, uint8_t *array, uint16_t num)
+{
+    uint8_t i;
+
+    for (i = 0; i < num; i++) {
+        /* 发送一个字节数据到USART */
+        Usart_SendByte(pUSARTx, array[i]);
+
+    }
+    /* 等待发送完成 */
+    while (USART_GetFlagStatus(pUSARTx, USART_FLAG_TC) == RESET);
+}
+
+/**
  * @brief 重定向fputc函数
  */
 int fputc(int ch, FILE *f)
@@ -132,5 +151,33 @@ int fgetc(FILE *f)
     while (USART_GetFlagStatus(DEBUG_USARTx, USART_FLAG_RXNE) == RESET);
 
     return (int) USART_ReceiveData(DEBUG_USARTx);
+}
+
+/**
+ * @brief USARTx TX DMA配置,内存到外设(USART1->DR)
+ */
+void USARTx_DMA_Config(void)
+{
+    DMA_InitTypeDef DMA_InitStructure;
+
+    /* 开启DMA时钟 */
+    RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
+
+    DMA_InitStructure.DMA_PeripheralBaseAddr = USART_DR_ADDRESS;              /**< DMA源地址:串口数据寄存器地址 */
+    DMA_InitStructure.DMA_MemoryBaseAddr = (u32) SendBuff;                    /**< 内存地址 */
+    DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;                        /**< 传输方向:从内存到外设 */
+    DMA_InitStructure.DMA_BufferSize = SENDBUFF_SIZE;                         /**< 传输数据大小 */
+    DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;          /**< 外设地址不增 */
+    DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;                   /**< 内存地址自增 */
+    DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;   /**< 外设数据单位 */
+    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;           /**< 内存数据单位 */
+    DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;                             /**< DMA模式:循环或一次 */
+    DMA_InitStructure.DMA_Priority = DMA_Priority_Medium;                     /**< 优先级:中 */
+    DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;                              /**< 禁止内存到内存传输 */
+
+    /* 配置DMA通道 */
+    DMA_Init(USART_TX_DMA_CHANNEL, &DMA_InitStructure);
+    /* 使能DMA */
+    DMA_Cmd(USART_TX_DMA_CHANNEL, ENABLE);
 }
 
